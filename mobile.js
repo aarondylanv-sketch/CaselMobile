@@ -11,6 +11,8 @@ let isOnline = navigator.onLine;
 let confirmCallback = null;
 let promptCallback = null;
 let currentPermMemberId = null;
+let appLockPin = null;
+let isUnlocked = true;
 
 const memberColors = [
     '#58a6ff','#3fb950','#d2991d','#da3633','#a371f7',
@@ -174,8 +176,14 @@ auth.onAuthStateChanged(async (user) => {
         if (doc.exists) {
             userProfile = doc.data();
             await db.collection('users').doc(user.uid).update({ lastSeen: firebase.firestore.FieldValue.serverTimestamp() });
+            
+            // Check app lock
+            appLockPin = userProfile.appLockPin || null;
+            
             document.getElementById('authScreen').classList.remove('active');
             document.getElementById('mainScreen').classList.add('active');
+            
+            updateProfilePicDisplay();
             loadChats();
         }
     } else {
@@ -222,8 +230,27 @@ async function deleteAccount() {
 // ============ PROFILE ============
 function openProfile() {
     document.getElementById('profileNickname').value = userProfile.nickname || '';
+    document.getElementById('profileEmail').textContent = '•••••••• (tap to view)';
+    document.getElementById('profileEmail').onclick = showEmail;
+    document.getElementById('hidePfp').checked = userProfile.hidePfp || false;
+    document.getElementById('appLockToggle').checked = userProfile.appLockPin ? true : false;
+    updateProfilePicDisplay();
     document.getElementById('profileModal').style.display = 'flex';
 }
+
+function showEmail() {
+    showCustomPrompt('Enter password to view email:', (pw) => {
+        if (!pw) return;
+        const cred = firebase.auth.EmailAuthProvider.credential(currentUser.email, pw);
+        currentUser.reauthenticateWithCredential(cred)
+            .then(() => {
+                document.getElementById('profileEmail').textContent = currentUser.email;
+                document.getElementById('profileEmail').onclick = null;
+            })
+            .catch(() => showCustomAlert('Wrong password', '❌'));
+    });
+}
+
 async function updateProfile() {
     const nn = document.getElementById('profileNickname').value.trim();
     if (!nn || nn.length > 20 || !/^[a-zA-Z]+$/.test(nn)) { showCustomAlert('Letters only, max 20'); return; }
@@ -236,6 +263,74 @@ async function updateProfile() {
     closeModal('profileModal');
     showCustomAlert('Updated!', '✅');
     loadChats();
+}
+
+async function toggleHidePfp() {
+    const hide = document.getElementById('hidePfp').checked;
+    await db.collection('users').doc(currentUser.uid).update({ hidePfp: hide });
+    userProfile.hidePfp = hide;
+}
+
+async function toggleAppLock() {
+    const toggle = document.getElementById('appLockToggle');
+    if (toggle.checked) {
+        showCustomPrompt('Create 4-digit PIN:', async (pin) => {
+            if (!pin || pin.length !== 4 || !/^\d+$/.test(pin)) {
+                showCustomAlert('Must be 4 digits', '❌');
+                toggle.checked = false;
+                return;
+            }
+            showCustomPrompt('Confirm PIN:', async (cpin) => {
+                if (pin !== cpin) {
+                    showCustomAlert('PINs dont match', '❌');
+                    toggle.checked = false;
+                    return;
+                }
+                appLockPin = pin;
+                await db.collection('users').doc(currentUser.uid).update({ appLockPin: pin });
+                showCustomAlert('App lock enabled! 🔒', '✅');
+            });
+        });
+    } else {
+        showCustomPrompt('Enter current PIN:', async (pin) => {
+            if (pin === appLockPin) {
+                appLockPin = null;
+                await db.collection('users').doc(currentUser.uid).update({ appLockPin: null });
+                showCustomAlert('App lock disabled', '✅');
+            } else {
+                showCustomAlert('Wrong PIN', '❌');
+                toggle.checked = true;
+            }
+        });
+    }
+}
+
+function updateProfilePicDisplay() {
+    const textEl = document.getElementById('profilePicText');
+    const imgEl = document.getElementById('profilePicImg');
+    if (userProfile?.profilePic) {
+        if (textEl) textEl.style.display = 'none';
+        if (imgEl) { imgEl.style.display = 'block'; imgEl.src = userProfile.profilePic; }
+    } else {
+        if (textEl) textEl.style.display = 'block';
+        if (imgEl) imgEl.style.display = 'none';
+    }
+}
+
+async function uploadProfilePic(event) {
+    const file = event.target.files[0];
+    if (!file || !currentUser) return;
+    try {
+        const storageRef = storage.ref('profilePics/' + currentUser.uid);
+        await storageRef.put(file);
+        const url = await storageRef.getDownloadURL();
+        await db.collection('users').doc(currentUser.uid).update({ profilePic: url });
+        userProfile.profilePic = url;
+        updateProfilePicDisplay();
+        showCustomAlert('Photo updated!', '✅');
+    } catch (e) {
+        showCustomAlert('Upload failed', '❌');
+    }
 }
 
 // ============ CHATS ============
