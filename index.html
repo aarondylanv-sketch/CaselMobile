@@ -169,24 +169,13 @@
 </div>
 
 <div id="chatSettingsModal" class="modal-overlay" style="display:none;">
-    <div class="modal-card">
-        <h3>Chat Settings</h3>
-        <div class="settings-group">
-            <label>Code</label>
-            <div class="code-box" id="groupCodeDisplay">------</div>
-        </div>
-        <div class="settings-group">
-            <label>Title</label>
-            <input type="text" id="settingsTitle" class="input-field">
-            <button onclick="changeChatTitle()" class="btn-small">Update</button>
-        </div>
-        <div class="settings-group">
-            <label>Members (<span id="memberCount">0</span>)</label>
-            <div class="member-list" id="memberList"></div>
-        </div>
-        <button onclick="leaveChat()" class="btn-danger">Leave</button>
-        <button onclick="closeModal('chatSettingsModal')" class="btn-cancel">Close</button>
-    </div>
+<div class="settings-group" id="defaultPermsSection">
+    <label>Default Permissions (New Members)</label>
+    <div class="perm-item"><span>Send Messages</span><input type="checkbox" id="defSendMsg" checked onchange="updateDefaultPerms()"></div>
+    <div class="perm-item"><span>Change Title</span><input type="checkbox" id="defChangeTitle" onchange="updateDefaultPerms()"></div>
+    <div class="perm-item"><span>Kick Members</span><input type="checkbox" id="defKick" onchange="updateDefaultPerms()"></div>
+    <div class="perm-item"><span>View Code</span><input type="checkbox" id="defViewCode" checked onchange="updateDefaultPerms()"></div>
+</div>
 </div>
 
 <div id="profileModal" class="modal-overlay" style="display:none;">
@@ -228,5 +217,17 @@
 </script>
 <script src="firebase.js"></script>
 <script src="mobile.js"></script>
+<div id="permissionsModal" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+        <h3 id="permMemberName">Permissions</h3>
+        <div class="perm-item"><span>Send Messages</span><input type="checkbox" id="permSendMsg"></div>
+        <div class="perm-item"><span>Change Title</span><input type="checkbox" id="permChangeTitle"></div>
+        <div class="perm-item"><span>Kick Members</span><input type="checkbox" id="permKick"></div>
+        <div class="perm-item"><span>View Code</span><input type="checkbox" id="permViewCode"></div>
+        <button onclick="savePermissions()" class="btn-primary full-width">Save</button>
+        <button onclick="kickMemberFromPerms()" class="btn-danger">Kick Member</button>
+        <button onclick="closeModal('permissionsModal')" class="btn-cancel">Close</button>
+    </div>
+</div>
 </body>
 </html>
