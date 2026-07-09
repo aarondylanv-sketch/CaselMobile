@@ -12,7 +12,6 @@ let confirmCallback = null;
 let promptCallback = null;
 let currentPermMemberId = null;
 let appLockPin = null;
-let isUnlocked = true;
 
 const memberColors = [
     '#58a6ff','#3fb950','#d2991d','#da3633','#a371f7',
@@ -176,13 +175,9 @@ auth.onAuthStateChanged(async (user) => {
         if (doc.exists) {
             userProfile = doc.data();
             await db.collection('users').doc(user.uid).update({ lastSeen: firebase.firestore.FieldValue.serverTimestamp() });
-            
-            // Check app lock
             appLockPin = userProfile.appLockPin || null;
-            
             document.getElementById('authScreen').classList.remove('active');
             document.getElementById('mainScreen').classList.add('active');
-            
             updateProfilePicDisplay();
             loadChats();
         }
@@ -198,11 +193,11 @@ auth.onAuthStateChanged(async (user) => {
 
 async function logoutUser() {
     await auth.signOut();
-    closeModal('profileModal');
+    document.getElementById('profileModal').style.display = 'none';
 }
 
 async function deleteAccount() {
-    showCustomConfirm('⚠️ DELETE ACCOUNT?\nPermanent.', async (ok) => {
+    showCustomConfirm('DELETE ACCOUNT?\nThis is permanent.', async (ok) => {
         if (!ok) return;
         showCustomPrompt('Enter password:', async (pw) => {
             if (!pw) return;
@@ -255,13 +250,13 @@ async function updateProfile() {
     const nn = document.getElementById('profileNickname').value.trim();
     if (!nn || nn.length > 20 || !/^[a-zA-Z]+$/.test(nn)) { showCustomAlert('Letters only, max 20'); return; }
     await db.collection('users').doc(currentUser.uid).update({ nickname: nn });
+    userProfile.nickname = nn;
     const chats = await db.collection('chats').where('members','array-contains',currentUser.uid).get();
     for (const c of chats.docs) {
         await c.ref.update({ [`memberNicknames.${currentUser.uid}`]: nn });
     }
-    userProfile.nickname = nn;
-    closeModal('profileModal');
-    showCustomAlert('Updated!', '✅');
+    document.getElementById('profileModal').style.display = 'none';
+    showCustomAlert('Profile updated!', '✅');
     loadChats();
 }
 
@@ -288,7 +283,7 @@ async function toggleAppLock() {
                 }
                 appLockPin = pin;
                 await db.collection('users').doc(currentUser.uid).update({ appLockPin: pin });
-                showCustomAlert('App lock enabled! 🔒', '✅');
+                showCustomAlert('App lock enabled!', '✅');
             });
         });
     } else {
@@ -321,15 +316,17 @@ async function uploadProfilePic(event) {
     const file = event.target.files[0];
     if (!file || !currentUser) return;
     try {
+        showCustomAlert('Uploading...', '⏳');
         const storageRef = storage.ref('profilePics/' + currentUser.uid);
         await storageRef.put(file);
         const url = await storageRef.getDownloadURL();
         await db.collection('users').doc(currentUser.uid).update({ profilePic: url });
         userProfile.profilePic = url;
         updateProfilePicDisplay();
+        document.getElementById('customAlert').style.display = 'none';
         showCustomAlert('Photo updated!', '✅');
     } catch (e) {
-        showCustomAlert('Upload failed', '❌');
+        showCustomAlert('Upload failed: ' + e.message, '❌');
     }
 }
 
@@ -397,7 +394,7 @@ async function joinByInviteCode() {
         [`memberColors.${currentUser.uid}`]: colorIndex,
         inviteUses: c.inviteUses + 1
     });
-    closeModal('newChatModal');
+    document.getElementById('newChatModal').style.display = 'none';
 }
 
 // ============ PERMISSIONS ============
@@ -416,7 +413,7 @@ async function openPermissions(uid, name) {
     if (!activeChatId) return;
     const doc = await db.collection('chats').doc(activeChatId).get();
     const c = doc.data();
-    if (c.createdBy !== currentUser.uid) { showCustomAlert('Only owner can manage permissions','🔒'); return; }
+    if (c.createdBy !== currentUser.uid) { showCustomAlert('Only owner can manage permissions'); return; }
     currentPermMemberId = uid;
     document.getElementById('permMemberName').textContent = 'Permissions: ' + name;
     const perms = c.memberPermissions?.[uid] || c.defaultPermissions || {sendMessages:true, changeTitle:true, kickMembers:false, viewCode:true};
@@ -435,8 +432,8 @@ async function savePermissions() {
         viewCode: document.getElementById('permViewCode').checked
     };
     await db.collection('chats').doc(activeChatId).update({ [`memberPermissions.${currentPermMemberId}`]: perms });
-    closeModal('permissionsModal');
-    showCustomAlert('Permissions updated!','✅');
+    document.getElementById('permissionsModal').style.display = 'none';
+    showCustomAlert('Permissions updated!', '✅');
 }
 async function kickMemberFromPerms() {
     if (!currentPermMemberId) return;
@@ -446,19 +443,20 @@ async function kickMemberFromPerms() {
             members: firebase.firestore.FieldValue.arrayRemove(currentPermMemberId),
             kickedMembers: firebase.firestore.FieldValue.arrayUnion(currentPermMemberId)
         });
-        closeModal('permissionsModal');
+        document.getElementById('permissionsModal').style.display = 'none';
         openChatSettings();
     });
 }
 async function updateDefaultPerms() {
     if (!activeChatId) return;
-    const perms = {
-        sendMessages: document.getElementById('defSendMsg').checked,
-        changeTitle: document.getElementById('defChangeTitle').checked,
-        kickMembers: document.getElementById('defKick').checked,
-        viewCode: document.getElementById('defViewCode').checked
-    };
-    await db.collection('chats').doc(activeChatId).update({ defaultPermissions: perms });
+    await db.collection('chats').doc(activeChatId).update({
+        defaultPermissions: {
+            sendMessages: document.getElementById('defSendMsg').checked,
+            changeTitle: document.getElementById('defChangeTitle').checked,
+            kickMembers: document.getElementById('defKick').checked,
+            viewCode: document.getElementById('defViewCode').checked
+        }
+    });
 }
 
 // ============ CHAT VIEW ============
@@ -506,7 +504,7 @@ function loadMessages() {
 async function sendMessage() {
     if (!activeChatId) return;
     const canSend = await hasPermission(currentUser.uid, 'sendMessages');
-    if (!canSend) { showCustomAlert('No permission to send messages','🔒'); return; }
+    if (!canSend) { showCustomAlert('No permission to send messages'); return; }
     const input = document.getElementById('messageInput');
     const text = input.value.trim();
     if (!text) return;
@@ -525,7 +523,10 @@ function showContextMenu(x, y, isOwn) {
     menu.style.top = Math.min(y, window.innerHeight-150)+'px';
     const items = menu.querySelectorAll('.context-item');
     if (items.length>=3) { items[1].style.display=isOwn?'block':'none'; items[2].style.display=isOwn?'block':'none'; }
-    setTimeout(() => document.addEventListener('click',()=>menu.style.display='none',{once:true}),100);
+    setTimeout(() => document.addEventListener('click', function hide() {
+        menu.style.display = 'none';
+        document.removeEventListener('click', hide);
+    }), 100);
 }
 function copyMessage() {
     if (selectedMessageData) navigator.clipboard.writeText(selectedMessageData.text);
@@ -541,11 +542,13 @@ async function saveEditedMessage() {
     const t=document.getElementById('editMessageInput').value.trim();
     if(!t||!selectedMessageId) return;
     await db.collection('chats').doc(activeChatId).collection('messages').doc(selectedMessageId).update({text:t});
-    closeModal('editMessageModal');
+    document.getElementById('editMessageModal').style.display='none';
 }
 async function deleteMessage() {
     if(!selectedMessageId||selectedMessageData?.senderId!==currentUser.uid) return;
-    showCustomConfirm('Delete for everyone?',async(ok)=>{if(ok) await db.collection('chats').doc(activeChatId).collection('messages').doc(selectedMessageId).delete();});
+    showCustomConfirm('Delete for everyone?',async(ok)=>{
+        if(ok) await db.collection('chats').doc(activeChatId).collection('messages').doc(selectedMessageId).delete();
+    });
     document.getElementById('contextMenu').style.display='none';
 }
 
@@ -577,8 +580,10 @@ async function openChatSettings() {
         const color = getMemberColorHex(ci);
         const div = document.createElement('div');
         div.className = 'member-item';
-        div.style.cursor = isOwner && uid !== currentUser.uid ? 'pointer' : 'default';
-        div.onclick = () => { if (isOwner && uid !== currentUser.uid) openPermissions(uid, c.memberNicknames?.[uid]||'?'); };
+        if (isOwner && uid !== currentUser.uid) {
+            div.style.cursor = 'pointer';
+            div.onclick = () => openPermissions(uid, c.memberNicknames?.[uid]||'?');
+        }
         div.innerHTML = `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;"></span>${c.memberNicknames?.[uid]||'?'} ${uid===c.createdBy?'👑':''} ${uid===currentUser.uid?'(You)':''}</span><span class="member-status ${online?'online':''}">${online?'🟢':'⚫'}</span>`;
         ml.appendChild(div);
         idx++;
@@ -587,24 +592,22 @@ async function openChatSettings() {
 }
 async function changeChatTitle() {
     const can = await hasPermission(currentUser.uid, 'changeTitle');
-    if (!can) { showCustomAlert('No permission','🔒'); return; }
+    if (!can) { showCustomAlert('No permission'); return; }
     const t = document.getElementById('settingsTitle').value.trim();
     if (!t) return;
     await db.collection('chats').doc(activeChatId).update({title:t});
     document.getElementById('chatTitle').textContent = t;
-    closeModal('chatSettingsModal');
+    document.getElementById('chatSettingsModal').style.display = 'none';
 }
 async function leaveChat() {
     showCustomConfirm('Leave chat?', async (ok) => {
         if (!ok) return;
         await db.collection('chats').doc(activeChatId).update({members: firebase.firestore.FieldValue.arrayRemove(currentUser.uid)});
         closeChatView();
-        closeModal('chatSettingsModal');
+        document.getElementById('chatSettingsModal').style.display = 'none';
     });
 }
 
 // ============ HELPERS ============
-function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-document.addEventListener('click', (e) => { if (e.target.classList.contains('modal-overlay')) e.target.style.display = 'none'; });
 function showTerms() { showCustomAlert('Terms: By using Casel you agree to our terms. No illegal activities.'); }
 function showPrivacyPolicyText() { showCustomAlert('Privacy: We store email, nickname, messages. No data selling.'); }
